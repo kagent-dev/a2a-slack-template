@@ -8,7 +8,7 @@ import os
 from a2a.client import A2AClient
 from a2a.types import Message, TextPart, MessageSendParams, SendMessageRequest
 
-async def invoke_a2a_agent(agent_url: str, input: str, logger: Logger):# -> Any | Literal['', 'No artifacts found in the response', '...:
+async def invoke_a2a_agent(agent_url: str, input: str, logger: Logger):
     """
     Invokes the A2A agent and returns the response and usage information.
     """
@@ -28,24 +28,55 @@ async def invoke_a2a_agent(agent_url: str, input: str, logger: Logger):# -> Any 
     text = ""
     usage_info = ""
 
-    # The API returns a Task object with artifacts containing the response
+    # The API returns a Task object with history containing the message exchange
     if response.root and response.root.result:
         task = response.root.result
-        if hasattr(task, 'artifacts') and task.artifacts:
-            for artifact in task.artifacts:
-                if hasattr(artifact, 'parts') and artifact.parts:
-                    for part in artifact.parts:
-                        if hasattr(part, 'root') and hasattr(part.root, 'text'):
-                            text += part.root.text
+        
+        # Parse the history to extract agent responses
+        if hasattr(task, 'history') and task.history:
+            for msg in task.history:
+                # Look for agent messages (skip user messages)
+                if hasattr(msg, 'role') and str(msg.role) == 'Role.agent':
+                    if hasattr(msg, 'parts') and msg.parts:
+                        for part in msg.parts:
+                            if hasattr(part, 'root'):
+                                part_root = part.root
+                                
+                                # Check the kind to determine what type of part it is
+                                if hasattr(part_root, 'kind'):
+                                    kind = part_root.kind
+                                    
+                                    # Handle text parts - these contain the final agent response
+                                    if kind == 'text' and hasattr(part_root, 'text') and part_root.text:
+                                        text += part_root.text + "\n"
+                                    
+                                    # Handle data parts - these contain function calls/responses
+                                    # We can optionally parse these too, but the final text response is better
+                                    elif kind == 'data' and hasattr(part_root, 'data'):
+                                        data = part_root.data
+                                        # Only extract text from function responses if no text parts found
+                                        if isinstance(data, dict) and 'response' in data:
+                                            response_data = data['response']
+                                            if isinstance(response_data, dict) and 'result' in response_data:
+                                                result = response_data['result']
+                                                if isinstance(result, dict) and 'content' in result:
+                                                    for content_item in result['content']:
+                                                        if isinstance(content_item, dict) and content_item.get('type') == 'text':
+                                                            # Only add raw function output if we don't have formatted text
+                                                            if not text.strip():
+                                                                text += content_item.get('text', '') + "\n"
             
             # Extract usage information from task metadata
             usage_info = extract_usage_info(task)
+            
+            if not text.strip():
+                text = "No response content found"
         else:
-            text = "No artifacts found in the response"
+            text = "No history found in the response"
     else:
         text = "No response from the agent"
     
-    return text, usage_info
+    return text.strip(), usage_info
 
 def extract_usage_info(task) -> str:
     """
@@ -54,8 +85,9 @@ def extract_usage_info(task) -> str:
     try:
         if hasattr(task, 'metadata') and task.metadata:
             metadata = task.metadata
-            if 'adk_usage_metadata' in metadata:
-                usage_meta = metadata['adk_usage_metadata']
+            # Look for kagent_usage_metadata in the metadata
+            if 'kagent_usage_metadata' in metadata:
+                usage_meta = metadata['kagent_usage_metadata']
                 prompt_tokens = usage_meta.get('promptTokenCount', 0)
                 candidates_tokens = usage_meta.get('candidatesTokenCount', 0)
                 total_tokens = usage_meta.get('totalTokenCount', 0)
@@ -124,8 +156,12 @@ async def mykagent_command(
                 },
                 {
                     "type": "divider"
-                },
-                {
+                }
+            ]
+            
+            # Only add usage info block if it's not empty
+            if usage_info and usage_info.strip():
+                response_blocks.append({
                     "type": "context",
                     "elements": [
                         {
@@ -133,8 +169,7 @@ async def mykagent_command(
                             "text": usage_info
                         }
                     ]
-                }
-            ]
+                })
             
             await client.chat_postMessage(
                 channel=channel_id,
