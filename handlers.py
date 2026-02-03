@@ -112,29 +112,29 @@ async def mykagent_command(
                         },
                     ]
                 },
-                {
-                    "type": "divider"
-                },
+                {"type": "divider"},
                 {
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
                         "text": response
                     }
-                },
-                {
-                    "type": "divider"
-                },
-                {
-                    "type": "context",
-                    "elements": [
-                        {
-                            "type": "mrkdwn",
-                            "text": usage_info
-                        }
-                    ]
                 }
             ]
+            # Only include usage metadata if present
+            if usage_info and usage_info.strip():
+                response_blocks.extend([
+                    {"type": "divider"},
+                    {
+                        "type": "context",
+                        "elements": [
+                            {
+                                "type": "mrkdwn",
+                                "text": usage_info
+                            }
+                        ]
+                    }
+                ])
             
             await client.chat_postMessage(
                 channel=channel_id,
