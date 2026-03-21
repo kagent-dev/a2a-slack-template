@@ -1,0 +1,44 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: a2a-slack-bot
+  namespace: krateo-system
+  labels:
+    app: a2a-slack-bot
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: a2a-slack-bot
+  template:
+    metadata:
+      labels:
+        app: a2a-slack-bot
+    spec:
+      containers:
+        - name: slack-bot
+          image: us-docker.pkg.dev/neon-481711/gcr.io/a2a-slack-bot:latest
+          env:
+            - name: SLACK_BOT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: a2a-slack-bot-secrets
+                  key: SLACK_BOT_TOKEN
+            - name: SLACK_APP_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: a2a-slack-bot-secrets
+                  key: SLACK_APP_TOKEN
+            - name: KAGENT_A2A_URL
+              value: http://kagent-controller.krateo-system.svc.cluster.local:8083/api/a2a/krateo-system/krateo-autopilot/
+            - name: PYTHONUNBUFFERED
+              value: "1"
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
